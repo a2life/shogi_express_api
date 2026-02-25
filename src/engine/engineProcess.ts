@@ -8,12 +8,18 @@ import { CommandQueue } from './commandQueue';
 const MAX_RETRIES = 3;
 const RETRY_WINDOW_MS = 3 * 60 * 1000; // 3 minutes
 
+export interface EngineInfo {
+  name: string;
+  author: string;
+}
+
 export class EngineProcess extends EventEmitter {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private readonly queue = new CommandQueue();
   private ready = false;
   private crashTimestamps: number[] = [];
   private shuttingDown = false;
+  private _engineInfo: EngineInfo = { name: 'unknown', author: 'unknown' };
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -121,6 +127,10 @@ export class EngineProcess extends EventEmitter {
     return this.ready;
   }
 
+  get engineInfo(): EngineInfo {
+    return this._engineInfo;
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -170,9 +180,16 @@ export class EngineProcess extends EventEmitter {
 
   /** Run the USI initialization handshake (usi → usiok → setoptions → isready → readyok). */
   private async handshake(): Promise<void> {
-    // Send 'usi' and wait for 'usiok'
-    await this.doSendAndCollect('usi', (parsed) => parsed.type === 'usiok', 10_000);
-    console.log('[Engine] usiok received.');
+    // Send 'usi' and wait for 'usiok'; capture id name / id author from the response
+    const usiLines = await this.doSendAndCollect('usi', (parsed) => parsed.type === 'usiok', 10_000);
+    for (const line of usiLines) {
+      const parsed = parseLine(line);
+      if (parsed.type === 'id') {
+        if (parsed.key === 'name')   this._engineInfo.name   = parsed.value;
+        if (parsed.key === 'author') this._engineInfo.author = parsed.value;
+      }
+    }
+    console.log(`[Engine] usiok received. Engine: ${this._engineInfo.name} by ${this._engineInfo.author}`);
 
     // Apply options from config
     for (const [name, value] of Object.entries(config.engineOptions)) {

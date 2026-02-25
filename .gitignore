@@ -10,5 +10,7 @@ yarn-error.log*
 
 .vscode/*
 
+# Environment variables
 .env
 .env.local
+.env.*.local

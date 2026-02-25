@@ -23,7 +23,7 @@ function loadEngineConfig(): Record<string, string | number> {
 
 const config: AppConfig = {
   port: parseInt(process.env.PORT ?? '3000', 10),
-  enginePath:  './engine/engine.exe',
+  enginePath: process.env.ENGINE_PATH ?? 'engine/engine',
   engineOptions: loadEngineConfig(),
 };
 
