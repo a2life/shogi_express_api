@@ -3,6 +3,30 @@
 > **This project was created with [Claude](https://claude.ai) by Anthropic.**  
 > The full codebase — architecture, TypeScript source files, and this document — was designed and written through a conversational session with Claude.
 
+
+---
+
+## Overview
+
+This project is an HTTP API server that wraps a **USI-compatible Shogi engine binary** (such as [YaneuraOu](https://github.com/yaneurao/YaneuraOu)) and exposes its capabilities as a simple REST API. It is written in **TypeScript** on **Node.js** using the **Express** framework.
+
+### What it does
+
+A USI engine is a command-line binary that communicates over stdin/stdout using the [USI protocol](http://shogidokoro.starfree.jp/usi.html) — the Shogi equivalent of the UCI protocol used in chess engines. Interacting with it directly requires managing a persistent child process, speaking a line-oriented text protocol, and carefully sequencing commands. This server handles all of that for you and exposes the results as clean JSON over HTTP.
+
+**Key capabilities:**
+
+- **Position analysis** — submit any board position (as a SFEN string or from the opening position) with optional move sequences, and receive the engine's best move, principal variation, and mate detection in a single request.
+- **Search control** — tune the analysis with `movetime`, `depth`, and `nodes` limits, or run an infinite search that auto-stops when the engine goes quiet.
+- **Engine management** — the server handles the full USI initialisation handshake on startup, applies engine options from a config file, and automatically restarts the engine if it crashes unexpectedly.
+- **Raw USI access** — a generic endpoint lets you send arbitrary USI commands directly to the engine for debugging or advanced use.
+
+### Typical use cases
+
+- A personal Shogi study tool that analyses positions from a game record viewer or board UI.
+- A backend for a Shogi web app that needs engine suggestions or tsume (mate) solving.
+- An analysis helper for game logging or post-game review pipelines.
+
 ---
 
 ## ⚠️ Concurrency Warning
@@ -38,7 +62,7 @@ If you need to serve multiple users concurrently, consider running multiple isol
 
 - **Node.js** 18 or later
 - **npm** 8 or later
-- A USI-compatible Shogi engine binary (e.g. [YaneuraOu](https://github.com/yaneurao/YaneuraOu), [Stockfish for Shogi](https://github.com/Tama4649/Stockfish))
+- A USI-compatible Shogi engine binary (e.g. [YaneuraOu](https://github.com/yaneurao/YaneuraOu), [Apery](https://github.com/HiraokaTakuya/apery_rust), [Stockfish with shogi variant](https://github.com/fairy-stockfish/Fairy-Stockfish))
 
 ---
 
@@ -344,7 +368,7 @@ GET /api/analyze?nodes=500000
 
 ### Error responses
 
-```json
+```jsonp
 { "error": "Engine is not ready." }               // 503
 { "error": "\"depth\" must be a positive integer." } // 400
 { "error": "Timeout waiting for response to: \"go movetime 3000\"" } // 500
