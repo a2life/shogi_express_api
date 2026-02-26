@@ -114,6 +114,8 @@ export interface MateInfo {
 
 export interface NoMateInfo {
   mate: false;
+  /** Centipawn score from the last info line. null if the engine did not report one. */
+  score: number | null;
 }
 
 export type AnalysisResult = {
@@ -125,10 +127,10 @@ export type AnalysisResult = {
  * Given the raw output lines from an analyze session, extract and return a
  * structured result summary:
  *
- *  - Inspects all "info" lines and takes the **last** one for mate detection.
+ *  - Inspects all "info" lines and takes the **last** one for score/mate detection.
  *  - If that info line contains "score mate <n>", sets mate=true and populates
  *    mate_length / mate_moves from the pv.
- *  - Otherwise sets mate=false.
+ *  - Otherwise sets mate=false and populates score from "score cp <n>" (null if absent).
  *  - Parses the "bestmove" line into bestmove / ponder fields.
  */
 export function parseAnalysisResult(lines: string[]): AnalysisResult {
@@ -147,7 +149,7 @@ export function parseAnalysisResult(lines: string[]): AnalysisResult {
   const bestmove = bestmoveParsed?.move ?? null;
   const ponder = bestmoveParsed?.ponder ?? null;
 
-  // Determine mate info
+  // Mate takes priority — score cp is irrelevant when a forced mate is found
   if (lastInfo?.mate !== undefined) {
     return {
       bestmove,
@@ -158,5 +160,10 @@ export function parseAnalysisResult(lines: string[]): AnalysisResult {
     };
   }
 
-  return { bestmove, ponder, mate: false };
+  return {
+    bestmove,
+    ponder,
+    mate: false,
+    score: lastInfo?.score ?? null,
+  };
 }

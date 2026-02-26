@@ -393,7 +393,8 @@ GET /api/analyze?nodes=500000
   ],
   "bestmove": "2g2f",
   "ponder": "8c8d",
-  "mate": false
+  "mate": false,
+  "score": 42
 }
 ```
 

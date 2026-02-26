@@ -56,7 +56,7 @@ export class EngineProcess extends EventEmitter {
   }
 
   /**
-   * Specialized method for the analyze workflow:
+   * Specialized method for the 'analyze' workflow:
    * 1. position sfen <sfen> [moves <move1> <move2> ...]
    * 2. go [movetime <ms>] [depth <n>] [nodes <n>]  |  go infinite
    * 3. (optionally) stop after idle timeout for infinite mode
@@ -235,10 +235,10 @@ export class EngineProcess extends EventEmitter {
 
   /**
    * Handle 'go infinite': send the command, then monitor stdout.
-   * If no output arrives for 10 seconds, send 'stop' and wait for bestmove.
+   * If no output arrives for 10 seconds, send 'stop' and wait for 'bestmove'.
    */
   private doInfiniteGo(goCommand: string): Promise<string[]> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const lines: string[] = [];
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
       let stopped = false;
