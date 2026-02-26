@@ -150,6 +150,10 @@ shogi-api/
 │       ├── usiCommand.ts         # GET /api/usi_command/:command
 │       ├── setOption.ts          # GET /api/setoption/:name/:value
 │       └── analyze.ts            # GET|POST /api/analyze/:waittime?
+├── engine/
+│   └── engine.exe                ← Place USI engine binary here (default location. .exe for Windows servers)
+│   └── eval/                     
+│      └── bin.nn                 ← Evaluation file default location if engine requires it.
 ├── config.json                   # Engine setoption parameters
 ├── .env                          # Environment variables (not committed)
 ├── package.json
