@@ -298,10 +298,16 @@ describe('POST /api/analyze', () => {
     expect(waittime).toBeUndefined();
   });
 
-  test('waittime=0 → go infinite path', async () => {
-    await request(app).post('/api/analyze/0').send({});
-    const [, waittime] = engine.analyze.mock.calls[0];
-    expect(waittime).toBe(0);
+  test('waittime=0 → 400 (use stream endpoint instead)', async () => {
+    const res = await request(app).post('/api/analyze/0').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/waittime=0/i);
+  });
+
+  test('waittime exceeding 25000 → 400', async () => {
+    const res = await request(app).post('/api/analyze/25001').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/waittime/i);
   });
 
   test('moves as JSON array forwarded correctly', async () => {

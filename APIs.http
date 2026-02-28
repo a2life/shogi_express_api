@@ -7,6 +7,8 @@ GET http://localhost:3000/
 GET http://localhost:3000/api/usi_command/config
 
 
+###
+GET http://localhost:3000/api/analyze/stream?waittime=20000
 
 ###
 # curl -X POST http://localhost:3000/api/analyze/3000
@@ -34,7 +36,7 @@ Content-Type: application/json
 
 ### Infinite search (auto-stops after 10 s of no output)
 
-POST http://localhost:3000/api/analyze/0
+POST http://localhost:3000/api/analyze/stream
 Content-Type: application/json
 
 {

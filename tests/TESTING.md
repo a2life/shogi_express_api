@@ -95,7 +95,8 @@ with a controllable Jest mock object — no real binary needed.
 - 200 mate shape (mate_length, mate_moves, score absent)
 - All args forwarded to engine.analyze in correct order
 - sfen omitted → undefined (startpos in response)
-- waittime=0 → 0 (infinite)
+- waittime=0 → 400 (use /api/analyze/stream?waittime=0 instead)
+- waittime=25001 → 400 (exceeds 25000 ms cap)
 - moves as array and as space-separated string
 - Empty moves string → undefined
 - depth=-1/0/1.5/"fast" → 400

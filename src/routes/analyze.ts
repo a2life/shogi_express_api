@@ -8,6 +8,12 @@ const router = Router();
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+/** Maximum waittime accepted by the batch analyze endpoint (ms).
+ *  Keeps the response well within common network/proxy timeout defaults (~30 s).
+ *  For longer or infinite searches use /api/analyze/stream instead.
+ */
+const MAX_BATCH_WAITTIME_MS = 25_000;
+
 function parseWaittime(raw: string | undefined): { value: number | undefined } | { error: string } {
   if (raw === undefined) return { value: undefined };
   const n = parseInt(raw, 10);
@@ -79,12 +85,25 @@ async function runAnalyze(
     moves: string[] | undefined,
     goParams: GoParams,
 ): Promise<void> {
+  const { waittime, depth, nodes } = goParams;
+
+  if (waittime === 0) {
+    res.status(400).json({
+      error: 'waittime=0 (infinite search) is not supported on this endpoint. Use /api/analyze/stream?waittime=0 instead.',
+    });
+    return;
+  }
+  if (waittime !== undefined && waittime > MAX_BATCH_WAITTIME_MS) {
+    res.status(400).json({
+      error: `waittime must not exceed ${MAX_BATCH_WAITTIME_MS} ms on this endpoint. For longer searches use /api/analyze/stream.`,
+    });
+    return;
+  }
+
   if (!engine.isReady) {
     res.status(503).json({ error: 'Engine is not ready.' });
     return;
   }
-
-  const { waittime, depth, nodes } = goParams;
 
   try {
     const lines = await engine.analyze(sfen, waittime, moves, depth, nodes);

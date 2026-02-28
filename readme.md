@@ -17,6 +17,7 @@ A USI engine is a command-line binary that communicates over stdin/stdout using 
 **Key capabilities:**
 
 - **Position analysis** — submit any board position (as a SFEN string or from the opening position) with optional move sequences, and receive the engine's best move, principal variation, and mate detection in a single request.
+- **SSE streaming** — a streaming variant of the analyze endpoint pushes each `info` line to the client as the engine thinks, preventing network timeouts on long or infinite searches.
 - **Search control** — tune the analysis with `movetime`, `depth`, and `nodes` limits, or run an infinite search that auto-stops when the engine goes quiet.
 - **Engine management** — the server handles the full USI initialisation handshake on startup, applies engine options from a config file, and automatically restarts the engine if it crashes unexpectedly.
 - **Raw USI access** — a generic endpoint lets you send arbitrary USI commands directly to the engine for debugging or advanced use.
@@ -164,7 +165,7 @@ shogi-api/
 │       ├── health.ts             # GET /
 │       ├── usiCommand.ts         # GET /api/usi_command/:command
 │       ├── setOption.ts          # GET /api/setoption/:name/:value
-│       └── analyze.ts            # GET|POST /api/analyze/:waittime?
+│       └── analyze.ts            # GET|POST /api/analyze/:waittime?  and  GET|POST /api/analyze/stream
 ├── tests/
 │   ├── TESTING.md                # Test suite documentation
 │   ├── unit/
@@ -251,12 +252,22 @@ Health check. Returns engine ready status.
     {
       "method": "POST",
       "path": "/api/analyze/:waittime?",
-      "description": "Analyse a position. Body: { sfen?, moves?, depth?, nodes? }. waittime (ms): omit = go, 0 = go infinite, N = go movetime N."
+      "description": "Analyse a position. Body: { sfen?, moves?, depth?, nodes? }. waittime (ms): omit = go, 1–25000 = go movetime N. Use /api/analyze/stream for infinite or long searches."
     },
     {
       "method": "GET",
       "path": "/api/analyze/:waittime?",
-      "description": "Analyse a position. Query params: sfen, moves, depth, nodes. waittime (ms): omit = go, 0 = go infinite, N = go movetime N."
+      "description": "Analyse a position. Query params: sfen, moves, depth, nodes. waittime (ms): omit = go, 1–25000 = go movetime N. Use /api/analyze/stream for infinite or long searches."
+    },
+    {
+      "method": "POST",
+      "path": "/api/analyze/stream",
+      "description": "SSE streaming analysis. Body: { sfen?, moves?, waittime?, depth?, nodes? }. Streams info events then a done event."
+    },
+    {
+      "method": "GET",
+      "path": "/api/analyze/stream",
+      "description": "SSE streaming analysis. Query params: sfen, moves, waittime, depth, nodes. Streams info events then a done event."
     }
   ]
 }
@@ -272,7 +283,13 @@ Sends a raw USI command to the engine and returns its output lines.
 
 **Void commands** (engine produces no output — resolved immediately): `usinewgame`, `gameover`, `stop`, `ponderhit`
 
-All other commands collect output lines until a terminal token (`usiok`, `readyok`, `bestmove`) or a blank line is received, with a 10-second timeout.
+All other commands collect output lines until:
+- a terminal token (`usiok`, `readyok`, `bestmove`) is received, or
+- a blank line is received after at least one content line, or
+- no new output arrives for **500 ms** after content has started (handles commands like `config` that end without a terminal token or trailing blank line), or
+- the 10-second hard timeout elapses.
+
+Blank lines are stripped from the returned `lines` array.
 
 **Examples**
 ```
@@ -321,11 +338,13 @@ GET /api/setoption/MultiPV/3
 
 Atomically sends `position` then `go` to the engine and waits for `bestmove`. The position + go sequence is serialized through the command queue to prevent race conditions between concurrent callers.
 
+> **Note:** `waittime` is capped at **25 000 ms** to stay well within common network and proxy timeout limits. `waittime=0` (infinite search) is **not** supported here — use [`/api/analyze/stream`](#get-apianalyzestream) instead.
+
 #### Parameters
 
 | Source | Name | Type | Required | Description |
 |--------|------|------|----------|-------------|
-| URL path | `waittime` | integer (ms) | No | Controls the `go` command. See table below. |
+| URL path | `waittime` | integer (ms) | No | Controls the `go` command. See table below. Must be 1–25000 when supplied. |
 | Body / Query | `sfen` | string | No | SFEN position string. Omit for `startpos`. |
 | Body / Query | `moves` | string or array | No | Space-separated USI moves from the position (e.g. `"7g7f 3c3d"`). POST accepts a JSON array too. |
 | Body / Query | `depth` | integer | No | Maximum search depth (`go depth <n>`). |
@@ -336,13 +355,14 @@ Atomically sends `position` then `go` to the engine and waits for `bestmove`. Th
 | `waittime` | `depth` | `nodes` | Command sent to engine |
 |------------|---------|---------|------------------------|
 | omitted | omitted | omitted | `go` |
-| `0` | any | any | `go infinite` *(depth/nodes ignored; auto-stop after 10 s of silence)* |
 | `3000` | omitted | omitted | `go movetime 3000` |
 | `3000` | `20` | omitted | `go movetime 3000 depth 20` |
 | `3000` | omitted | `500000` | `go movetime 3000 nodes 500000` |
 | `3000` | `20` | `500000` | `go movetime 3000 depth 20 nodes 500000` |
 | omitted | `20` | omitted | `go depth 20` |
 | omitted | omitted | `500000` | `go nodes 500000` |
+
+For infinite search (`go infinite`) use `/api/analyze/stream?waittime=0`.
 
 #### POST examples
 
@@ -360,11 +380,6 @@ curl -X POST http://localhost:3000/api/analyze \
     "moves": ["7g7f", "3c3d"],
     "depth": 20
   }'
-
-# Infinite search (auto-stops after 10 s of no output)
-curl -X POST http://localhost:3000/api/analyze/0 \
-  -H "Content-Type: application/json" \
-  -d '{ "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1" }'
 ```
 
 #### GET examples
@@ -378,6 +393,48 @@ GET /api/analyze?sfen=lnsgkgsnl%2F1r5b1%2F...&moves=7g7f%203c3d&depth=20
 
 # Node-limited search from startpos
 GET /api/analyze?nodes=500000
+```
+
+---
+
+### `GET /api/analyze/stream`
+### `POST /api/analyze/stream`
+
+Streaming variant of the analyze endpoint. Accepts the same parameters as `GET /api/analyze/:waittime?` and `POST /api/analyze/:waittime?` respectively, except `waittime` is always a query parameter (GET) or body field (POST) rather than a URL path segment.
+
+Returns a **Server-Sent Events** (`text/event-stream`) response. Each event is a JSON object on a `data:` line:
+
+| Event `type` | When | Fields |
+|---|---|---|
+| `info` | Each engine info line | `depth?`, `score?`, `mate?`, `pv?`, `raw` |
+| `bestmove` | When engine outputs bestmove | `move`, `ponder?` |
+| `done` | After bestmove is received | Full structured result (same shape as batch analyze) |
+| `error` | On engine error or timeout | `message` |
+
+A `: keepalive` comment is written every 15 seconds to prevent proxy and client timeouts during long searches.
+
+#### Example
+
+```bash
+# Stream a 10-second search
+curl -N http://localhost:3000/api/analyze/stream?waittime=10000
+
+# Stream an infinite search (auto-stops after 10 s of engine silence)
+curl -N http://localhost:3000/api/analyze/stream?waittime=0
+```
+
+#### SSE event stream example
+
+```
+: keepalive
+
+data: {"type":"info","depth":10,"score":42,"pv":["7g7f","3c3d"],"raw":"info depth 10 ..."}
+
+data: {"type":"info","depth":11,"score":38,"pv":["2g2f","8c8d"],"raw":"info depth 11 ..."}
+
+data: {"type":"bestmove","move":"2g2f","ponder":"8c8d"}
+
+data: {"type":"done","sfen":"startpos","moves":[],"waittime":10000,"depth":null,"nodes":null,"bestmove":"2g2f","ponder":"8c8d","mate":false,"score":38}
 ```
 
 ---
