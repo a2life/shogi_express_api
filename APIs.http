@@ -42,3 +42,12 @@ Content-Type: application/json
 {
 "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1"
 }
+
+### Stop the active stream search early (replace stopToken with value from session SSE event)
+
+POST http://localhost:3000/api/analyze/stream/stop
+Content-Type: application/json
+
+{
+"stopToken": "f3a1c9e2-84b7-4d2a-9f6e-123456789abc"
+}
