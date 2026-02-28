@@ -51,6 +51,7 @@ If you need to serve multiple users concurrently, consider running multiple isol
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Running the Server](#running-the-server)
+- [Testing](#testing)
 - [Project Structure](#project-structure)
 - [Architecture](#architecture)
 - [API Reference](#api-reference)
@@ -89,7 +90,7 @@ cp .env.example .env   # or create .env manually
 | Variable            | Default               | Description                                      |
 |---------------------|-----------------------|--------------------------------------------------|
 | `PORT`              | `3000`                | HTTP port the server listens on                  |
-| `ENGINE_PATH`       | `/engine/engine.exe`  | Absolute path to the USI engine binary           |
+| `ENGINE_PATH`       | `./engine/engine`     | Path to the USI engine binary                    |
 | `ENGINE_CONFIG_PATH`| `./config.json`       | Path to the engine options JSON file             |
 
 ### `config.json`
@@ -133,6 +134,20 @@ The server will refuse to accept requests until the engine has completed its ini
 
 ---
 
+## Testing
+
+The test suite uses **Jest** with **ts-jest** and **supertest**. No engine binary is required — integration tests mock the engine singleton.
+
+```bash
+npm test                  # run all tests
+npm run test:watch        # watch mode
+npm run test:coverage     # with coverage report
+```
+
+See [`tests/TESTING.md`](tests/TESTING.md) for a full description of unit and integration test cases.
+
+---
+
 ## Project Structure
 
 ```
@@ -150,11 +165,19 @@ shogi-api/
 │       ├── usiCommand.ts         # GET /api/usi_command/:command
 │       ├── setOption.ts          # GET /api/setoption/:name/:value
 │       └── analyze.ts            # GET|POST /api/analyze/:waittime?
+├── tests/
+│   ├── TESTING.md                # Test suite documentation
+│   ├── unit/
+│   │   ├── usiProtocol.test.ts   # Unit tests for USI parser and command sets
+│   │   └── commandQueue.test.ts  # Unit tests for serial queue behaviour
+│   └── integration/
+│       └── routes.test.ts        # Integration tests for all HTTP routes (engine mocked)
 ├── engine/
 │   └── engine.exe                ← Place USI engine binary here (default location. .exe for Windows servers)
-│   └── eval/                     
+│   └── eval/
 │      └── bin.nn                 ← Evaluation file default location if engine requires it.
 ├── config.json                   # Engine setoption parameters
+├── jest.config.ts                # Jest + ts-jest configuration
 ├── .env                          # Environment variables (not committed)
 ├── package.json
 └── tsconfig.json
