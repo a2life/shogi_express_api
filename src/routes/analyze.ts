@@ -22,8 +22,8 @@ function parsePosInt(
     name: string,
 ): { value: number | undefined } | { error: string } {
   if (raw === undefined || raw === null || raw === '') return { value: undefined };
-  const n = parseInt(String(raw), 10);
-  if (isNaN(n) || n <= 0) {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
     return { error: `"${name}" must be a positive integer.` };
   }
   return { value: n };
@@ -95,8 +95,8 @@ async function runAnalyze(
       sfen: sfen ?? 'startpos',
       moves: moves ?? [],
       waittime,
-      depth,
-      nodes,
+      depth: depth ?? null,
+      nodes: nodes ?? null,
       lines,
       ...analysis,
     });

@@ -115,11 +115,14 @@ describe('CommandQueue', () => {
   test('size counts waiting tasks, not the running one', async () => {
     let sizeObserved = -1;
 
-    // First task holds the queue and samples size while running
+    // First task holds the queue and samples size while running.
+    // Defer the sample via setTimeout so the two subsequent enqueues
+    // have already pushed into the queue before we read size.
     const first = queue.enqueue(() => new Promise<void>((resolve) => {
-      // At this point two more are waiting in the queue
-      sizeObserved = queue.size;
-      setTimeout(resolve, 40);
+      setTimeout(() => {
+        sizeObserved = queue.size;
+        resolve();
+      }, 40);
     }));
 
     // Enqueue two more before the first resolves
