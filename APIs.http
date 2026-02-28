@@ -1,0 +1,7 @@
+### Dev server API access point.
+### health check
+GET http://localhost:3000/
+
+
+###  void command that returns immediately
+GET http://localhost:3000/api/usi_command/config

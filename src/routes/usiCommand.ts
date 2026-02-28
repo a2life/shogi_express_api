@@ -70,9 +70,10 @@ router.get('/:command', async (req: Request, res: Response) => {
                     return false;
                 },
                 10_000,
+                500, // resolve automatically if no new output for 500 ms (e.g. `config`)
             );
 
-            res.json({ command, lines });
+            res.json({ command, lines: lines.filter(l => l.trim() !== '') });
         }
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

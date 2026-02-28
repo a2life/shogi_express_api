@@ -46,13 +46,18 @@ export class EngineProcess extends EventEmitter {
   /**
    * Send a command and collect all output lines until `stopPredicate` returns
    * true for a received line. Resolves with the collected lines.
+   *
+   * @param idleTimeoutMs - If set, resolve automatically when no new lines
+   *   arrive for this many milliseconds (useful for commands with no terminal
+   *   token, like `config`).
    */
   sendAndCollect(
       command: string,
       stopPredicate: (parsed: UsiLine, raw: string) => boolean,
       timeoutMs = 30_000,
+      idleTimeoutMs?: number,
   ): Promise<string[]> {
-    return this.queue.enqueue(() => this.doSendAndCollect(command, stopPredicate, timeoutMs));
+    return this.queue.enqueue(() => this.doSendAndCollect(command, stopPredicate, timeoutMs, idleTimeoutMs));
   }
 
   /**
@@ -206,15 +211,29 @@ export class EngineProcess extends EventEmitter {
       command: string,
       stopPredicate: (parsed: UsiLine, raw: string) => boolean,
       timeoutMs: number,
+      idleTimeoutMs?: number,
   ): Promise<string[]> {
     return new Promise((resolve, reject) => {
       const lines: string[] = [];
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        if (idleTimer) clearTimeout(idleTimer);
+        this.removeListener('line', onLine);
+      };
 
       const onLine = (raw: string, parsed: UsiLine) => {
         lines.push(raw);
         if (stopPredicate(parsed, raw)) {
           cleanup();
           resolve(lines);
+        } else if (idleTimeoutMs) {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            cleanup();
+            resolve(lines);
+          }, idleTimeoutMs);
         }
       };
 
@@ -222,11 +241,6 @@ export class EngineProcess extends EventEmitter {
         cleanup();
         reject(new Error(`Timeout waiting for response to: "${command}"`));
       }, timeoutMs);
-
-      const cleanup = () => {
-        clearTimeout(timer);
-        this.removeListener('line', onLine);
-      };
 
       this.on('line', onLine);
       this.write(command);
