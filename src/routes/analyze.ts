@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { engine } from '../engine/engineProcess';
-import { parseAnalysisResult } from '../engine/usiProtocol';
+import { parseAnalysisResult, UsiLine } from '../engine/usiProtocol';
 
 const router = Router();
 
@@ -105,6 +105,104 @@ async function runAnalyze(
     res.status(500).json({ error: message });
   }
 }
+
+// ---------------------------------------------------------------------------
+// SSE streaming: GET /api/analyze/stream  and  POST /api/analyze/stream
+//
+// Sends events as the engine thinks:
+//   data: {"type":"info","depth":12,"score":150,"pv":["7g7f",...]}
+//   data: {"type":"bestmove","move":"7g7f","ponder":"3c3d"}
+//   data: {"type":"done","bestmove":"7g7f","mate":false,"score":150,...}
+//   data: {"type":"error","message":"..."}     (on failure)
+//
+// A ": keepalive" comment is sent every 15 s to prevent proxy timeouts.
+// ---------------------------------------------------------------------------
+
+function runAnalyzeStream(
+    res: Response,
+    sfen: string | undefined,
+    moves: string[] | undefined,
+    goParams: GoParams,
+): void {
+  if (!engine.isReady) {
+    res.status(503).json({ error: 'Engine is not ready.' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const keepalive = setInterval(() => res.write(': keepalive\n\n'), 15_000);
+
+  const { waittime, depth, nodes } = goParams;
+
+  engine.analyze(sfen, waittime, moves, depth, nodes, (_raw: string, parsed: UsiLine) => {
+    if (parsed.type === 'info' || parsed.type === 'bestmove') {
+      send(parsed);
+    }
+  })
+  .then((lines) => {
+    const analysis = parseAnalysisResult(lines);
+    send({
+      type: 'done',
+      sfen: sfen ?? 'startpos',
+      moves: moves ?? [],
+      waittime,
+      depth: depth ?? null,
+      nodes: nodes ?? null,
+      ...analysis,
+    });
+  })
+  .catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    send({ type: 'error', message });
+  })
+  .finally(() => {
+    clearInterval(keepalive);
+    res.end();
+  });
+}
+
+router.get('/stream', (req: Request, res: Response) => {
+  const rawSfen = req.query.sfen;
+  const sfenValue: string | undefined =
+      typeof rawSfen === 'string' && rawSfen.trim() !== '' ? rawSfen.trim() : undefined;
+
+  const goResult = parseGoParams(
+      typeof req.query.waittime === 'string' ? req.query.waittime : undefined,
+      req.query.depth,
+      req.query.nodes,
+  );
+  if ('error' in goResult) {
+    res.status(400).json({ error: goResult.error });
+    return;
+  }
+
+  runAnalyzeStream(res, sfenValue, parseMoves(req.query.moves), goResult.value);
+});
+
+router.post('/stream', (req: Request, res: Response) => {
+  const { sfen, moves: rawMoves, depth: rawDepth, nodes: rawNodes, waittime: rawWaittime } =
+      req.body as { sfen?: unknown; moves?: unknown; depth?: unknown; nodes?: unknown; waittime?: unknown };
+
+  const sfenValue: string | undefined =
+      typeof sfen === 'string' && sfen.trim() !== '' ? sfen.trim() : undefined;
+
+  const goResult = parseGoParams(
+      rawWaittime !== undefined ? String(rawWaittime) : undefined,
+      rawDepth,
+      rawNodes,
+  );
+  if ('error' in goResult) {
+    res.status(400).json({ error: goResult.error });
+    return;
+  }
+
+  runAnalyzeStream(res, sfenValue, parseMoves(rawMoves), goResult.value);
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/analyze/:waittime?

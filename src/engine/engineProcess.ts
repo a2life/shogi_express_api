@@ -72,6 +72,7 @@ export class EngineProcess extends EventEmitter {
    * @param moves    - optional list of USI moves played from the position (e.g. ["7g7f","3c3d"])
    * @param depth    - optional maximum search depth (go depth <n>)
    * @param nodes    - optional maximum node count (go nodes <n>)
+   * @param onLine   - optional callback invoked for each line as it arrives (for SSE streaming)
    *
    * Note: waittime=0 (infinite) takes priority over depth/nodes.
    * depth and nodes can be combined with each other and with waittime > 0.
@@ -82,6 +83,7 @@ export class EngineProcess extends EventEmitter {
       moves?: string[],
       depth?: number,
       nodes?: number,
+      onLine?: (raw: string, parsed: UsiLine) => void,
   ): Promise<string[]> {
     return this.queue.enqueue(async () => {
       // Step 1: send position
@@ -94,7 +96,7 @@ export class EngineProcess extends EventEmitter {
       // Step 2: build go command
       // waittime === 0 → go infinite (depth/nodes ignored; stop sent after idle)
       if (waittime === 0) {
-        return this.doInfiniteGo('go infinite');
+        return this.doInfiniteGo('go infinite', onLine);
       }
 
       const parts: string[] = ['go'];
@@ -114,6 +116,8 @@ export class EngineProcess extends EventEmitter {
           goCommand,
           (parsed) => parsed.type === 'bestmove',
           timeoutMs,
+          undefined,
+          onLine,
       );
     });
   }
@@ -212,6 +216,7 @@ export class EngineProcess extends EventEmitter {
       stopPredicate: (parsed: UsiLine, raw: string) => boolean,
       timeoutMs: number,
       idleTimeoutMs?: number,
+      onEachLine?: (raw: string, parsed: UsiLine) => void,
   ): Promise<string[]> {
     return new Promise((resolve, reject) => {
       const lines: string[] = [];
@@ -225,6 +230,7 @@ export class EngineProcess extends EventEmitter {
 
       const onLine = (raw: string, parsed: UsiLine) => {
         lines.push(raw);
+        onEachLine?.(raw, parsed);
         if (stopPredicate(parsed, raw)) {
           cleanup();
           resolve(lines);
@@ -251,7 +257,10 @@ export class EngineProcess extends EventEmitter {
    * Handle 'go infinite': send the command, then monitor stdout.
    * If no output arrives for 10 seconds, send 'stop' and wait for 'bestmove'.
    */
-  private doInfiniteGo(goCommand: string): Promise<string[]> {
+  private doInfiniteGo(
+      goCommand: string,
+      onEachLine?: (raw: string, parsed: UsiLine) => void,
+  ): Promise<string[]> {
     return new Promise((resolve) => {
       const lines: string[] = [];
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -270,6 +279,7 @@ export class EngineProcess extends EventEmitter {
 
       const onLine = (raw: string, parsed: UsiLine) => {
         lines.push(raw);
+        onEachLine?.(raw, parsed);
         if (parsed.type === 'bestmove') {
           if (idleTimer) clearTimeout(idleTimer);
           this.removeListener('line', onLine);
