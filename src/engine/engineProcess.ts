@@ -20,6 +20,8 @@ export class EngineProcess extends EventEmitter {
   private crashTimestamps: number[] = [];
   private shuttingDown = false;
   private _engineInfo: EngineInfo = { name: 'unknown', author: 'unknown' };
+  /** Token held by the currently-running stream search. null when idle. */
+  private activeStopToken: string | null = null;
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -84,42 +86,63 @@ export class EngineProcess extends EventEmitter {
       depth?: number,
       nodes?: number,
       onLine?: (raw: string, parsed: UsiLine) => void,
+      stopToken?: string,
   ): Promise<string[]> {
     return this.queue.enqueue(async () => {
-      // Step 1: send position
-      // When sfen is omitted use "startpos", otherwise "sfen <sfen>"
-      const positionBase = sfen ? `sfen ${sfen}` : 'startpos';
-      const moveSuffix =
-          moves && moves.length > 0 ? ` moves ${moves.join(' ')}` : '';
-      this.write(`position ${positionBase}${moveSuffix}`);
+      if (stopToken) this.activeStopToken = stopToken;
+      try {
+        // Step 1: send position
+        // When sfen is omitted use "startpos", otherwise "sfen <sfen>"
+        const positionBase = sfen ? `sfen ${sfen}` : 'startpos';
+        const moveSuffix =
+            moves && moves.length > 0 ? ` moves ${moves.join(' ')}` : '';
+        this.write(`position ${positionBase}${moveSuffix}`);
 
-      // Step 2: build go command
-      // waittime === 0 → go infinite (depth/nodes ignored; stop sent after idle)
-      if (waittime === 0) {
-        return this.doInfiniteGo('go infinite', onLine);
+        // Step 2: build go command
+        // waittime === 0 → go infinite (depth/nodes ignored; stop sent after idle)
+        if (waittime === 0) {
+          return await this.doInfiniteGo('go infinite', onLine);
+        }
+
+        const parts: string[] = ['go'];
+        if (waittime !== undefined) parts.push(`movetime ${waittime}`);
+        if (depth !== undefined)    parts.push(`depth ${depth}`);
+        if (nodes !== undefined)    parts.push(`nodes ${nodes}`);
+
+        const goCommand = parts.join(' ');
+
+        // Timeout: generous headroom beyond movetime; for depth/nodes-only searches
+        // we allow up to 5 minutes since we have no wall-clock bound.
+        const timeoutMs = waittime !== undefined
+            ? waittime + 30_000
+            : 5 * 60_000;
+
+        return await this.doSendAndCollect(
+            goCommand,
+            (parsed) => parsed.type === 'bestmove',
+            timeoutMs,
+            undefined,
+            onLine,
+        );
+      } finally {
+        if (stopToken) this.activeStopToken = null;
       }
-
-      const parts: string[] = ['go'];
-      if (waittime !== undefined) parts.push(`movetime ${waittime}`);
-      if (depth !== undefined)    parts.push(`depth ${depth}`);
-      if (nodes !== undefined)    parts.push(`nodes ${nodes}`);
-
-      const goCommand = parts.join(' ');
-
-      // Timeout: generous headroom beyond movetime; for depth/nodes-only searches
-      // we allow up to 5 minutes since we have no wall-clock bound.
-      const timeoutMs = waittime !== undefined
-          ? waittime + 30_000
-          : 5 * 60_000;
-
-      return this.doSendAndCollect(
-          goCommand,
-          (parsed) => parsed.type === 'bestmove',
-          timeoutMs,
-          undefined,
-          onLine,
-      );
     });
+  }
+
+  /**
+   * Send 'stop' directly to the engine, bypassing the command queue.
+   * Only succeeds when the token matches the active stream search.
+   * Called from the /api/analyze/stream/stop endpoint.
+   */
+  stopSearch(token: string): void {
+    if (!this.activeStopToken) {
+      throw Object.assign(new Error('No active stream search.'), { code: 'NO_SEARCH' });
+    }
+    if (token !== this.activeStopToken) {
+      throw Object.assign(new Error('Invalid stop token.'), { code: 'INVALID_TOKEN' });
+    }
+    this.write('stop');
   }
 
   /** Graceful shutdown. */

@@ -27,14 +27,35 @@ const API_ENDPOINTS = [
     path: '/api/analyze/:waittime?',
     description:
         'Analyse a position. Body: { sfen?, moves?, depth?, nodes? }. ' +
-        'waittime (ms): omit = go, 0 = go infinite, N = go movetime N.',
+        'waittime 1–25000 ms. Use /api/analyze/stream for infinite or long searches.',
   },
   {
     method: 'GET',
     path: '/api/analyze/:waittime?',
     description:
         'Analyse a position. Query params: sfen, moves, depth, nodes. ' +
-        'waittime (ms): omit = go, 0 = go infinite, N = go movetime N.',
+        'waittime 1–25000 ms. Use /api/analyze/stream for infinite or long searches.',
+  },
+  {
+    method: 'POST',
+    path: '/api/analyze/stream',
+    description:
+        'SSE streaming analysis. Body: { sfen?, moves?, waittime?, depth?, nodes? }. ' +
+        'Streams a session event (with stopToken), info events, then a done event.',
+  },
+  {
+    method: 'GET',
+    path: '/api/analyze/stream',
+    description:
+        'SSE streaming analysis. Query params: sfen, moves, waittime, depth, nodes. ' +
+        'Streams a session event (with stopToken), info events, then a done event.',
+  },
+  {
+    method: 'POST',
+    path: '/api/analyze/stream/stop',
+    description:
+        'Stop the active stream search early. Body: { stopToken }. ' +
+        'stopToken is the value received in the opening session SSE event.',
   },
 ];
 

@@ -19,6 +19,7 @@ jest.mock('../../src/engine/engineProcess', () => ({
     sendVoid: jest.fn(),
     sendAndCollect: jest.fn(),
     analyze: jest.fn(),
+    stopSearch: jest.fn(),
   },
 }));
 
@@ -31,6 +32,7 @@ const { engine } = require('../../src/engine/engineProcess') as {
     sendVoid: jest.Mock;
     sendAndCollect: jest.Mock;
     analyze: jest.Mock;
+    stopSearch: jest.Mock;
   };
 };
 
@@ -456,5 +458,90 @@ describe('GET /api/analyze', () => {
     setReady(false);
     const res = await request(app).get('/api/analyze');
     expect(res.status).toBe(503);
+  });
+});
+
+// =============================================================================
+// POST /api/analyze/stream — session token
+// =============================================================================
+
+describe('POST /api/analyze/stream — session token', () => {
+  const noMateLines = [
+    'info depth 18 score cp 42 pv 2g2f 8c8d',
+    'bestmove 2g2f ponder 8c8d',
+  ];
+
+  beforeEach(() => {
+    engine.analyze.mockResolvedValue(noMateLines);
+  });
+
+  test('first SSE event is a session event containing a stopToken', async () => {
+    const res = await request(app)
+        .post('/api/analyze/stream')
+        .send({})
+        .buffer(true);
+    const firstEvent = (res.text as string).split('\n\n')[0];
+    const match = firstEvent.match(/^data: (.+)$/m);
+    expect(match).not.toBeNull();
+    const parsed = JSON.parse(match![1]);
+    expect(parsed.type).toBe('session');
+    expect(typeof parsed.stopToken).toBe('string');
+    expect(parsed.stopToken.length).toBeGreaterThan(0);
+  });
+
+  test('engine.analyze is called with a stopToken as the last argument', async () => {
+    await request(app).post('/api/analyze/stream').send({}).buffer(true);
+    const args = engine.analyze.mock.calls[0];
+    const stopToken = args[6];
+    expect(typeof stopToken).toBe('string');
+    expect(stopToken.length).toBeGreaterThan(0);
+  });
+});
+
+// =============================================================================
+// POST /api/analyze/stream/stop
+// =============================================================================
+
+describe('POST /api/analyze/stream/stop', () => {
+  test('400 when stopToken is missing', async () => {
+    const res = await request(app).post('/api/analyze/stream/stop').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/stopToken/i);
+  });
+
+  test('400 when stopToken is not a string', async () => {
+    const res = await request(app).post('/api/analyze/stream/stop').send({ stopToken: 42 });
+    expect(res.status).toBe(400);
+  });
+
+  test('404 when no active stream search', async () => {
+    engine.stopSearch.mockImplementation(() => {
+      throw Object.assign(new Error('No active stream search.'), { code: 'NO_SEARCH' });
+    });
+    const res = await request(app).post('/api/analyze/stream/stop').send({ stopToken: 'any' });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/no active/i);
+  });
+
+  test('403 when token does not match active search', async () => {
+    engine.stopSearch.mockImplementation(() => {
+      throw Object.assign(new Error('Invalid stop token.'), { code: 'INVALID_TOKEN' });
+    });
+    const res = await request(app).post('/api/analyze/stream/stop').send({ stopToken: 'wrong' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/invalid/i);
+  });
+
+  test('200 with valid token when engine accepts stop', async () => {
+    engine.stopSearch.mockImplementation(() => { /* no-op */ });
+    const res = await request(app).post('/api/analyze/stream/stop').send({ stopToken: 'valid-token' });
+    expect(res.status).toBe(200);
+    expect(res.body.result).toBe('stop sent');
+  });
+
+  test('stopSearch is called with the supplied token', async () => {
+    engine.stopSearch.mockImplementation(() => { /* no-op */ });
+    await request(app).post('/api/analyze/stream/stop').send({ stopToken: 'abc-123' });
+    expect(engine.stopSearch).toHaveBeenCalledWith('abc-123');
   });
 });

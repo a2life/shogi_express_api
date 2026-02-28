@@ -400,12 +400,13 @@ GET /api/analyze?nodes=500000
 ### `GET /api/analyze/stream`
 ### `POST /api/analyze/stream`
 
-Streaming variant of the analyze endpoint. Accepts the same parameters as `GET /api/analyze/:waittime?` and `POST /api/analyze/:waittime?` respectively, except `waittime` is always a query parameter (GET) or body field (POST) rather than a URL path segment.
+Streaming variant of the analyze endpoint. Accepts the same parameters as `GET /api/analyze/:waittime?` and `POST /api/analyze/:waittime?` respectively, except `waittime` is always a query parameter (GET) or body field (POST) rather than a URL path segment. There is no cap on `waittime` here; use `waittime=0` for an infinite search.
 
 Returns a **Server-Sent Events** (`text/event-stream`) response. Each event is a JSON object on a `data:` line:
 
 | Event `type` | When | Fields |
 |---|---|---|
+| `session` | Immediately, before any engine output | `stopToken` — UUID the client uses to stop this search early |
 | `info` | Each engine info line | `depth?`, `score?`, `mate?`, `pv?`, `raw` |
 | `bestmove` | When engine outputs bestmove | `move`, `ponder?` |
 | `done` | After bestmove is received | Full structured result (same shape as batch analyze) |
@@ -428,6 +429,8 @@ curl -N http://localhost:3000/api/analyze/stream?waittime=0
 ```
 : keepalive
 
+data: {"type":"session","stopToken":"f3a1c9e2-84b7-4d2a-9f6e-123456789abc"}
+
 data: {"type":"info","depth":10,"score":42,"pv":["7g7f","3c3d"],"raw":"info depth 10 ..."}
 
 data: {"type":"info","depth":11,"score":38,"pv":["2g2f","8c8d"],"raw":"info depth 11 ..."}
@@ -435,6 +438,38 @@ data: {"type":"info","depth":11,"score":38,"pv":["2g2f","8c8d"],"raw":"info dept
 data: {"type":"bestmove","move":"2g2f","ponder":"8c8d"}
 
 data: {"type":"done","sfen":"startpos","moves":[],"waittime":10000,"depth":null,"nodes":null,"bestmove":"2g2f","ponder":"8c8d","mate":false,"score":38}
+```
+
+---
+
+### `POST /api/analyze/stream/stop`
+
+Stop the currently-running stream search early. The engine will respond with a `bestmove` line, which the stream handler picks up and sends as the normal `bestmove` + `done` SSE events before closing the connection.
+
+Only the client that opened the stream can stop it — the `stopToken` received in the opening `session` event acts as the authorisation credential.
+
+#### Body
+
+```json
+{ "stopToken": "f3a1c9e2-84b7-4d2a-9f6e-123456789abc" }
+```
+
+#### Responses
+
+| Status | Meaning |
+|--------|---------|
+| `200` | `stop` written to engine stdin; `bestmove` will follow on the stream |
+| `400` | `stopToken` field missing or not a string |
+| `403` | Token does not match the active search (wrong client) |
+| `404` | No stream search is currently running |
+
+#### Example
+
+```bash
+# Stop a search that is streaming on another connection
+curl -X POST http://localhost:3000/api/analyze/stream/stop \
+  -H "Content-Type: application/json" \
+  -d '{"stopToken":"f3a1c9e2-84b7-4d2a-9f6e-123456789abc"}'
 ```
 
 ---

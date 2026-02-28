@@ -110,3 +110,14 @@ with a controllable Jest mock object — no real binary needed.
 - depth/nodes/sfen/moves query params forwarded
 - depth=abc / nodes=-1 → 400
 - Engine not ready → 503
+
+### `POST /api/analyze/stream` — session token
+- First SSE event is `{"type":"session","stopToken":"<uuid>"}` before any engine output
+- engine.analyze is called with the stopToken as its last argument
+
+### `POST /api/analyze/stream/stop`
+- 400 when stopToken is missing or not a string
+- 404 when no active stream search (engine throws NO_SEARCH)
+- 403 when token does not match active search (engine throws INVALID_TOKEN)
+- 200 + `{ result: "stop sent" }` on success
+- engine.stopSearch is called with the exact token supplied

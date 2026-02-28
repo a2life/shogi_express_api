@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { engine } from '../engine/engineProcess';
 import { parseAnalysisResult, UsiLine } from '../engine/usiProtocol';
 
@@ -158,11 +159,17 @@ function runAnalyzeStream(
 
   const { waittime, depth, nodes } = goParams;
 
+  // Issue a stop token so the client can cancel this specific search via
+  // POST /api/analyze/stream/stop.  Sent as the very first SSE event so the
+  // client has it before any info lines arrive.
+  const stopToken = randomUUID();
+  send({ type: 'session', stopToken });
+
   engine.analyze(sfen, waittime, moves, depth, nodes, (_raw: string, parsed: UsiLine) => {
     if (parsed.type === 'info' || parsed.type === 'bestmove') {
       send(parsed);
     }
-  })
+  }, stopToken)
   .then((lines) => {
     const analysis = parseAnalysisResult(lines);
     send({
@@ -184,6 +191,38 @@ function runAnalyzeStream(
     res.end();
   });
 }
+
+// ---------------------------------------------------------------------------
+// POST /api/analyze/stream/stop
+//
+// Stops the currently-running stream search.  The client must supply the
+// stopToken it received in the opening "session" SSE event.
+//
+// 200 { result: "stop sent" }    — stop written to engine stdin
+// 400                            — stopToken missing
+// 403                            — token does not match active search
+// 404                            — no active stream search
+// ---------------------------------------------------------------------------
+router.post('/stream/stop', (req: Request, res: Response) => {
+  const { stopToken } = req.body as { stopToken?: unknown };
+  if (typeof stopToken !== 'string' || !stopToken) {
+    res.status(400).json({ error: '"stopToken" is required.' });
+    return;
+  }
+  try {
+    engine.stopSearch(stopToken);
+    res.json({ result: 'stop sent' });
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e.code === 'NO_SEARCH') {
+      res.status(404).json({ error: 'No active stream search.' });
+    } else if (e.code === 'INVALID_TOKEN') {
+      res.status(403).json({ error: 'Invalid stop token.' });
+    } else {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+});
 
 router.get('/stream', (req: Request, res: Response) => {
   const rawSfen = req.query.sfen;
