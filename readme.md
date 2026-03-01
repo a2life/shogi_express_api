@@ -30,6 +30,26 @@ A USI engine is a command-line binary that communicates over stdin/stdout using 
 
 ---
 
+## ⚠️ CORS
+
+Cross-Origin Resource Sharing headers are set in `src/app.ts` at the top of the middleware stack.
+
+**Current setting (development):**
+```ts
+res.setHeader('Access-Control-Allow-Origin', '*');
+```
+This allows any origin — fine for local development, **not safe for production**.
+
+**Before deploying publicly**, restrict the origin:
+```ts
+// Replace '*' with your actual client origin, or drive it from an env var:
+const allowed = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
+res.setHeader('Access-Control-Allow-Origin', allowed);
+```
+Then add `CORS_ORIGIN=https://your-app.example.com` to your production `.env`.
+
+---
+
 ## ⚠️ Concurrency Warning
 
 **This server is not suited for high-concurrency or multi-client deployments.**
