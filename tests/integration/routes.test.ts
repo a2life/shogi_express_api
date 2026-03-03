@@ -23,6 +23,19 @@ jest.mock('../../src/engine/engineProcess', () => ({
   },
 }));
 
+// ── mock config so adminApiKey is set to a known test value ──────────────────
+jest.mock('../../src/config', () => ({
+  __esModule: true,
+  default: {
+    port: 3000,
+    enginePath: './engine/engine',
+    engineOptions: {},
+    adminApiKey: 'test-admin-key',
+  },
+}));
+
+const TEST_ADMIN_KEY = 'test-admin-key';
+
 // ── import the mock so tests can mutate it ───────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { engine } = require('../../src/engine/engineProcess') as {
@@ -180,9 +193,26 @@ describe('GET /api/usi_command/:command', () => {
 
 describe('GET /api/setoption/:name/:value', () => {
 
+  // ── auth guard ────────────────────────────────────────────────────────────
+  test('401 when Authorization header is missing', async () => {
+    const res = await request(app).get('/api/setoption/USI_Hash/1024');
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBeDefined();
+  });
+
+  test('401 when Authorization header has wrong key', async () => {
+    const res = await request(app)
+      .get('/api/setoption/USI_Hash/1024')
+      .set('Authorization', 'Bearer wrong-key');
+    expect(res.status).toBe(401);
+  });
+
+  // ── happy path ────────────────────────────────────────────────────────────
   test('200 with correct command string and result: sent', async () => {
     engine.sendVoid.mockResolvedValue(undefined);
-    const res = await request(app).get('/api/setoption/USI_Hash/1024');
+    const res = await request(app)
+      .get('/api/setoption/USI_Hash/1024')
+      .set('Authorization', `Bearer ${TEST_ADMIN_KEY}`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       command: 'setoption name USI_Hash value 1024',
@@ -192,25 +222,33 @@ describe('GET /api/setoption/:name/:value', () => {
 
   test('sends "setoption name <n> value <v>" to engine', async () => {
     engine.sendVoid.mockResolvedValue(undefined);
-    await request(app).get('/api/setoption/MultiPV/3');
+    await request(app)
+      .get('/api/setoption/MultiPV/3')
+      .set('Authorization', `Bearer ${TEST_ADMIN_KEY}`);
     expect(engine.sendVoid).toHaveBeenCalledWith('setoption name MultiPV value 3');
   });
 
   test('404 when value segment is missing (route not matched)', async () => {
-    const res = await request(app).get('/api/setoption/USI_Hash');
+    const res = await request(app)
+      .get('/api/setoption/USI_Hash')
+      .set('Authorization', `Bearer ${TEST_ADMIN_KEY}`);
     expect(res.status).toBe(404);
   });
 
   test('503 when engine is not ready', async () => {
     setReady(false);
-    const res = await request(app).get('/api/setoption/USI_Hash/256');
+    const res = await request(app)
+      .get('/api/setoption/USI_Hash/256')
+      .set('Authorization', `Bearer ${TEST_ADMIN_KEY}`);
     expect(res.status).toBe(503);
     expect(res.body.error).toBeDefined();
   });
 
   test('500 when sendVoid rejects', async () => {
     engine.sendVoid.mockRejectedValue(new Error('write failed'));
-    const res = await request(app).get('/api/setoption/USI_Hash/256');
+    const res = await request(app)
+      .get('/api/setoption/USI_Hash/256')
+      .set('Authorization', `Bearer ${TEST_ADMIN_KEY}`);
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/write failed/i);
   });

@@ -30,6 +30,24 @@ A USI engine is a command-line binary that communicates over stdin/stdout using 
 
 ---
 
+## ⚠️ Admin API Key
+
+`GET /api/setoption` is protected by a static Bearer token. Set `ADMIN_API_KEY` in your `.env` before starting the server:
+
+```bash
+# Generate a strong key:
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# Add to .env:
+ADMIN_API_KEY=<generated-value>
+```
+
+If `ADMIN_API_KEY` is not set, the server will warn at startup and all `/api/setoption` requests will return `401`.
+
+Always serve over **HTTPS** in production — the key is sent as a plain Bearer token and is visible in transit over plain HTTP.
+
+---
+
 ## ⚠️ CORS
 
 Cross-Origin Resource Sharing headers are set in `src/app.ts` at the top of the middleware stack.
@@ -68,6 +86,7 @@ If you need to serve multiple users concurrently, consider running multiple isol
 
 ## Table of Contents
 
+- [Admin API Key](#️-admin-api-key)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -113,6 +132,7 @@ cp .env.example .env   # or create .env manually
 | `PORT`              | `3000`                | HTTP port the server listens on                  |
 | `ENGINE_PATH`       | `./engine/engine`     | Path to the USI engine binary                    |
 | `ENGINE_CONFIG_PATH`| `./config.json`       | Path to the engine options JSON file             |
+| `ADMIN_API_KEY`     | *(none)*              | Secret key required to call `GET /api/setoption`. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 
 ### `config.json`
 
@@ -181,6 +201,8 @@ shogi-api/
 │   │   ├── engineProcess.ts      # Spawns binary, USI handshake, crash/retry, public API
 │   │   ├── commandQueue.ts       # Serial promise queue — one command in-flight at a time
 │   │   └── usiProtocol.ts        # USI line parser, blocked/void command sets, result enrichment
+│   ├── middleware/
+│   │   └── adminAuth.ts          # Bearer token check for admin-only routes
 │   └── routes/
 │       ├── health.ts             # GET /
 │       ├── usiCommand.ts         # GET /api/usi_command/:command
@@ -335,12 +357,23 @@ GET /api/usi_command/usinewgame
 
 ### `GET /api/setoption/:name/:value`
 
+> **Admin only** — requires a valid `ADMIN_API_KEY` in the `Authorization` header.
+
 Sends `setoption name <name> value <value>` to the engine. This is a void command — the engine produces no output.
 
-**Example**
+**Authorization**
+
+All requests must include the header:
 ```
-GET /api/setoption/USI_Hash/1024
-GET /api/setoption/MultiPV/3
+Authorization: Bearer <ADMIN_API_KEY>
+```
+
+Requests without the header, or with a wrong key, receive `401 Unauthorized`.
+
+**Example**
+```bash
+curl http://localhost:3000/api/setoption/USI_Hash/1024 \
+  -H "Authorization: Bearer <your-admin-api-key>"
 ```
 
 **Response**

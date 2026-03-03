@@ -69,6 +69,8 @@ jest.config.ts
 Uses `jest.mock('../../src/engine/engineProcess')` to replace the singleton `engine`
 with a controllable Jest mock object — no real binary needed.
 
+`jest.mock('../../src/config')` sets `adminApiKey` to a known test value (`'test-admin-key'`) so the admin auth middleware can be tested without a real `.env`. Admin-protected tests send `Authorization: Bearer test-admin-key`.
+
 ### `GET /`
 - 200 with status/timestamp/engine/api shape
 - Timestamp is valid ISO string
@@ -84,8 +86,10 @@ with a controllable Jest mock object — no real binary needed.
 - sendAndCollect rejects → 500
 
 ### `GET /api/setoption/:name/:value`
-- 200 with exact command string and result: sent
-- Calls sendVoid with correct setoption string
+- Missing Authorization header → 401
+- Wrong key in Authorization header → 401
+- 200 with exact command string and result: sent (valid key)
+- Calls sendVoid with correct setoption string (valid key)
 - Missing value segment → 404
 - Engine not ready → 503
 - sendVoid rejects → 500
